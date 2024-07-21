@@ -9,7 +9,7 @@ This Python script generates BD-Rate (Bjøntegaard-Delta Rate) graphs for compar
 ## Features
 
 - Encodes a source video using two user-configurable FFmpeg commands
-- Calculates SSIMULACRA2 scores
+- Calculates SSIMULACRA2 scores (and soon XPSNR scores as well)
 - Generates BD-Rate curves comparing the two encoding commands
 - Outputs both average and harmonic mean SSIMULACRA2 plots
 - Allows for temporal metric analysis subsampling (sampling every nth frame)
@@ -19,7 +19,7 @@ This Python script generates BD-Rate (Bjøntegaard-Delta Rate) graphs for compar
 - Python 3.x
 - FFmpeg
 - VapourSynth with:
-  - [SSIMULACRA2 Zig Plugin](https://github.com/dnjulek/vapoursynth-ssimulacra2)
+  - [VSZip Plugin](https://github.com/dnjulek/vapoursynth-zip)
   - FFMS2
   - fmtconv
 - Required Python packages:

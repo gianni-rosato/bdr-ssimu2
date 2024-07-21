@@ -18,7 +18,7 @@ def calc_some_scores(score_list: list[int]):
     harmonic_mean: float = len(score_list)/sum(list_of_reciprocals)
     return (average, harmonic_mean)
 
-def calculate_metrics(source_path, encoded_path, every: int):
+def calculate_metrics(source_path, encoded_path, every: int, metric):
     core = vs.core
 
     source_clip = core.ffms2.Source(source=source_path)
@@ -34,22 +34,31 @@ def calculate_metrics(source_path, encoded_path, every: int):
     source_clip = source_clip.fmtc.transfer(transs="srgb", transd="linear", bits=32)
     encoded_clip = encoded_clip.fmtc.transfer(transs="srgb", transd="linear", bits=32)
 
-    result = source_clip.ssimulacra2.SSIMULACRA2(encoded_clip)
+    if (metric == "ssimu2"):
+        result = source_clip.vszip.Metrics(encoded_clip, [0])
+    elif (metric == "xpsnr"):
+        result = source_clip.vszip.Metrics(encoded_clip, [1])
+    else:
+        raise ValueError(f"Invalid metric: {metric}")
 
-    ssim_scores = []
-    with tqdm(total=result.num_frames, desc="Calculating SSIMULACRA2 scores", unit=" frame") as pbar:
-        for frame in result.frames():
-            ssim_scores.append(frame.props['_SSIMULACRA2'])
+    scores = []
+    with tqdm(total=result.num_frames, desc=f"Calculating {metric} scores", unit=" frame") as pbar:
+        for idx, frame in enumerate(result.frames()):
+            if (metric == "ssimu2"):
+                scores.append(frame.props['_SSIMULACRA2'])
+            else:
+                scores.append(frame.props['_XPSNR'])
+
             pbar.update(1)
-            if (frame % 24 == 0):
-                (average, harmonic_mean) = calc_some_scores(ssim_scores)
+            if (idx % 24 == 0):
+                (average, harmonic_mean) = calc_some_scores(scores)
                 pbar.set_postfix({
                     'avg': f"{average:.2f}",
                     'harmean': f"{harmonic_mean:.2f}"
                 })
 
-    average = sum(ssim_scores) / len(ssim_scores)
-    harmonic_mean = len(ssim_scores) / sum([1.0/s for s in ssim_scores if s != 0])
+    average = sum(scores) / len(scores)
+    harmonic_mean = len(scores) / sum([1.0/s for s in scores if s != 0])
     return (average, harmonic_mean)
 
 def plot_results(data, output_file, mode, codec_1, codec_2):
@@ -76,8 +85,10 @@ def plot_results(data, output_file, mode, codec_1, codec_2):
     plt.close()
 
 def process_results(codec, ffmpeg_command, crf_start, crf_end, crf_step, every, source):
-    codec_results = []
-    codec_results_harmonic = []
+    codec_results_ssimu2 = []
+    codec_results_harmonic_ssimu2 = []
+    codec_results_xpsnr = []
+    codec_results_harmonic_xpsnr = []
     for crf in range(crf_start, crf_end + 1, crf_step):
         output_file = f"encoded_{codec}_crf{crf}.mp4"
 
@@ -85,30 +96,49 @@ def process_results(codec, ffmpeg_command, crf_start, crf_end, crf_step, every, 
         encode_video(source, output_file, ffmpeg_command, crf)
 
         print(f"Calculating metrics for {codec} with CRF {crf}")
-        ssimu2_scores = calculate_metrics(source, output_file, every)
+        ssimu2_scores = calculate_metrics(source, output_file, every, "ssimu2")
         ssimu2_mean = ssimu2_scores[0]
         ssimu2_harmonic = ssimu2_scores[1]
+
+        # Uncomment when vszip has XPSNR support
+        # xpsnr_scores = calculate_metrics(source, output_file, 1, "xpsnr")
+        # xpsnr_mean = xpsnr_scores[0]
+        # xpsnr_harmonic = xpsnr_scores[1]
 
         file_size = os.path.getsize(output_file)
         # Bitrate only works on MP4s and MOVs
         bitrate = float(subprocess.check_output(['ffprobe', '-v', 'quiet', '-select_streams', 'v:0', '-show_entries', 'stream=bit_rate', '-of', 'default=noprint_wrappers=1:nokey=1', output_file]).strip())
         bitrate_k: float = bitrate / 1000
 
-        codec_results.append({
+        codec_results_ssimu2.append({
             'crf': crf,
             'ssimu2': ssimu2_mean,
             'bitrate': bitrate_k
         })
 
-        codec_results_harmonic.append({
+        codec_results_harmonic_ssimu2.append({
             'crf': crf,
             'ssimu2': ssimu2_harmonic,
             'bitrate': bitrate_k
         })
 
-        os.remove(output_file) # Clean up encoded file
+        # Uncomment when vszip has XPSNR support
+        # codec_results_xpsnr.append({
+        #     'crf': crf,
+        #     'xpsnr': xpsnr_mean,
+        #     'bitrate': bitrate_k
+        # })
+        #
+        # codec_results_harmonic_xpsnr.append({
+        #     'crf': crf,
+        #     'xpsnr': xpsnr_harmonic,
+        #     'bitrate': bitrate_k
+        # })
 
-    return (codec_results, codec_results_harmonic)
+        os.remove(output_file) # Clean up encoded file
+    # Uncomment when vszip has XPSNR support
+    # return (codec_results_ssimu2, codec_results_harmonic_ssimu2, codec_results_xpsnr, codec_results_harmonic_xpsnr)
+    return (codec_results_ssimu2, codec_results_harmonic_ssimu2)
 
 
 def main():
@@ -125,33 +155,55 @@ def main():
     args = parser.parse_args()
 
     # User-specified codec strings & settings go here
-    codec_1 = 'libx264'
-    codec_2 = 'libx265'
+    codec_1 = 'h264_vt'
+    codec_2 = 'hevc_vt'
     ffmpeg_commands = {
-        f'{codec_1}': 'ffmpeg -y -hide_banner -loglevel error -i {input} -c:v libx264 -crf {crf} -preset fast {output}',
-        f'{codec_2}': 'ffmpeg -y -hide_banner -loglevel error -i {input} -c:v libx265 -crf {crf} -preset fast {output}'
+        f'{codec_1}': 'ffmpeg_vt -y -hide_banner -loglevel error -i {input} -c:v h264_videotoolbox -q:v {crf} -profile:v high {output}',
+        f'{codec_2}': 'ffmpeg_vt -y -hide_banner -loglevel error -i {input} -c:v hevc_videotoolbox -q:v {crf} -profile:v main {output}'
     }
 
-    results = {}
-    results_harmonic = {}
+    results_ssimu2 = {}
+    results_harmonic_ssimu2 = {}
+    results_xpsnr = {}
+    results_harmonic_xpsnr = {}
 
     # Process results
-    results_1 = process_results(f'{codec_1}', ffmpeg_commands[f'{codec_1}'], args.crf_start_1, args.crf_end_1, args.crf_step_1, args.every, args.source)
-    results_2 = process_results(f'{codec_2}', ffmpeg_commands[f'{codec_2}'], args.crf_start_2, args.crf_end_2, args.crf_step_2, args.every, args.source)
+    results_1_all = process_results(f'{codec_1}', ffmpeg_commands[f'{codec_1}'], args.crf_start_1, args.crf_end_1, args.crf_step_1, args.every, args.source)
+    results_2_all = process_results(f'{codec_2}', ffmpeg_commands[f'{codec_2}'], args.crf_start_2, args.crf_end_2, args.crf_step_2, args.every, args.source)
 
     # Assign results
-    results[f'{codec_1}'] = results_1[0]
-    results[f'{codec_2}'] = results_2[0]
-    results_harmonic[f'{codec_1}'] = results_1[1]
-    results_harmonic[f'{codec_2}'] = results_2[1]
+    results_ssimu2[f'{codec_1}'] = results_1_all[0]
+    results_ssimu2[f'{codec_2}'] = results_2_all[0]
+    results_harmonic_ssimu2[f'{codec_1}'] = results_1_all[1]
+    results_harmonic_ssimu2[f'{codec_2}'] = results_2_all[1]
+
+    # Uncomment when vszip has XPSNR support
+    # results_xpsnr[f'{codec_1}'] = results_1_all[2]
+    # results_xpsnr[f'{codec_2}'] = results_2_all[2]
+    # results_harmonic_xpsnr[f'{codec_1}'] = results_1_all[3]
+    # results_harmonic_xpsnr[f'{codec_2}'] = results_2_all[3]
 
     # Plot results
-    plot_results(results, f"curve-{codec_1}_vs_{codec_2}_every-{int(args.every)}-mean.webp", "mean", codec_1, codec_2)
-    plot_results(results_harmonic, f"curve-{codec_1}_vs_{codec_2}_every-{int(args.every)}-harmean.webp", "harmean", codec_1, codec_2)
+    plot_results(results_ssimu2, f"curve-{codec_1}_vs_{codec_2}_every-{int(args.every)}-ssimu2-mean.webp", "mean", codec_1, codec_2)
+    plot_results(results_harmonic_ssimu2, f"curve-{codec_1}_vs_{codec_2}_every-{int(args.every)}-ssimu2-harmean.webp", "harmean", codec_1, codec_2)
+
+    # Uncomment when vszip has XPSNR support
+    # plot_results(results_xpsnr, f"curve-{codec_1}_vs_{codec_2}_every-{int(args.every)}-xpsnr-mean.webp", "mean", codec_1, codec_2)
+    # plot_results(results_harmonic_xpsnr, f"curve-{codec_1}_vs_{codec_2}_every-{int(args.every)}-xpsnr-harmean.webp", "harmean", codec_1, codec_2)
 
     # Save results to JSON for future reference
-    with open(f"results-{codec_1}_vs_{codec_2}_every-{int(args.every)}.json", "w") as f:
-        json.dump(results, f, indent=2)
+    with open(f"results-{codec_1}_vs_{codec_2}_every-{int(args.every)}-ssimu2.json", "w") as f:
+        json.dump(results_ssimu2, f, indent=2)
+
+    with open(f"results-{codec_1}_vs_{codec_2}_every-{int(args.every)}-ssimu2-harmean.json", "w") as f:
+        json.dump(results_harmonic_ssimu2, f, indent=2)
+
+    # Uncomment when vszip has XPSNR support
+    # with open(f"results-{codec_1}_vs_{codec_2}_every-{int(args.every)}-xpsnr.json", "w") as f:
+    #     json.dump(results_xpsnr, f, indent=2)
+    #
+    # with open(f"results-{codec_1}_vs_{codec_2}_every-{int(args.every)}-xpsnr-harmean.json", "w") as f:
+    #     json.dump(results_harmonic_xpsnr, f, indent=2)
 
 if __name__ == "__main__":
     main()
