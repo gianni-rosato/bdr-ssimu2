@@ -150,7 +150,7 @@ def main():
     plot_results(results_harmonic, f"curve-{codec_1}_vs_{codec_2}_every-{int(args.every)}-harmean.webp", "harmean", codec_1, codec_2)
 
     # Save results to JSON for future reference
-    with open('encoding_results.json', 'w') as f:
+    with open(f"results-{codec_1}_vs_{codec_2}_every-{int(args.every)}.json", "w") as f:
         json.dump(results, f, indent=2)
 
 if __name__ == "__main__":
