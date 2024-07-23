@@ -9,7 +9,7 @@ This Python script generates BD-Rate (Bjøntegaard-Delta Rate) graphs for compar
 - Encodes a source video using two user-configurable FFmpeg commands
 - Calculates SSIMULACRA2 scores (and soon XPSNR scores as well)
 - Generates BD-Rate curves comparing the two encoding commands
-- Outputs both average and harmonic mean SSIMULACRA2 plots
+- Outputs both average and harmonic mean SSIMULACRA2 plots in a user-specified image format
 - Allows for temporal metric analysis subsampling (sampling every nth frame)
 
 ## Prerequisites
@@ -19,7 +19,6 @@ This Python script generates BD-Rate (Bjøntegaard-Delta Rate) graphs for compar
 - VapourSynth with:
   - [VSZip Plugin](https://github.com/dnjulek/vapoursynth-zip)
   - FFMS2
-  - fmtconv
 - Required Python packages:
   - `vapoursynth`
   - `matplotlib`
@@ -44,12 +43,12 @@ cd vapoursynth-ssimulacra2
 ./build.sh
 ```
 
-4. Ensure FFmpeg and VapourSynth are installed and accessible from the command line. This may involve creating a `/usr/local/lib/vapoursynth` directory & simlinking the necessary libraries to it.
+4. Ensure FFmpeg and VapourSynth are installed & accessible from the command line. This may involve creating a `/usr/local/lib/vapoursynth` directory & simlinking the necessary libraries into it.
 
 ## Usage
 
 ```
-usage: bdr-ssimu2.py [-h] [-cs1 CRF_START_1] [-ce1 CRF_END_1] [-ct1 CRF_STEP_1] [-cs2 CRF_START_2] [-ce2 CRF_END_2] [-ct2 CRF_STEP_2] [-e EVERY] [-t THREADS] source
+usage: bdr-ssimu2.py [-h] [-cs1 CRF_START_1] [-ce1 CRF_END_1] [-ct1 CRF_STEP_1] [-cs2 CRF_START_2] [-ce2 CRF_END_2] [-ct2 CRF_STEP_2] [-e EVERY] [-t THREADS] [-f FORMAT] source
 
 Encode, analyze, and plot SSIMULACRA2 scores using a source video file that is encoded with FFmpeg.
 
@@ -74,18 +73,20 @@ options:
                         Only score every nth frame. Default 1 (every frame)
   -t THREADS, --threads THREADS
                         Number of threads. Default 0 (auto)
+  -f FORMAT, --format FORMAT
+                        Save to format webp, png, svg. Default svg
 ```
 
 ### Example
 
 Example command:
-```
+```bash
 python bd_rate_graph.py input_video.mp4 -cs1 18 -ce1 30 -ct1 3 -cs2 18 -ce2 30 -ct2 3 -e 5
 ```
 
 Example images:
-![Average scores for every 10 frames](./static/curve-h264_videotoolbox_vs_hevc_videotoolbox_every-10-mean.webp)
-![Harmonic mean scores for every 10 frames](./static/curve-h264_videotoolbox_vs_hevc_videotoolbox_every-10-harmean.webp)
+![Harmonic Mean SSIMU2 Plot](./static/plot_harmean.svg)
+![Average SSIMU2 Plot](./static/plot_mean.svg)
 
 This command will analyze the input video, using CRF values from 18 to 30 with a step of 3 for both codecs, and only score every 5th frame.
 
@@ -96,7 +97,7 @@ To use different codecs or encoding settings, modify the `ffmpeg_commands` dicti
 ## Output
 
 The script generates:
-- WebP images of the BD-Rate curves (one for average scores, one for harmonic mean scores)
+- Images of the BD-Rate curves in your desired format (one for average scores, one for harmonic mean scores)
 - A JSON file containing detailed results
 
 ## Contributing
