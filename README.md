@@ -98,7 +98,7 @@ To use different codecs or encoding settings, modify the `ffmpeg_commands` dicti
 
 The script generates:
 - Images of the BD-Rate curves in your desired format (one for average scores, one for harmonic mean scores)
-- A JSON file containing detailed results
+- JSON files containing encoding commands & metrics output
 
 ## Contributing
 
