@@ -2,8 +2,6 @@
 
 Encode, analyze, & plot SSIMULACRA2 scores using a source video file that is encoded with FFmpeg.
 
-# BD-Rate Graph Generator
-
 This Python script generates BD-Rate (Bjøntegaard-Delta Rate) graphs for comparing the performance of different encoding commands. It encodes a source video with various specified Constant Rate Factor (CRF) values, calculates SSIMULACRA2 scores, and plots the results via `matplotlib`.
 
 ## Features
