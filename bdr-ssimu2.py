@@ -16,7 +16,9 @@ def calc_some_scores(score_list: list[int]):
     average: float = sum(score_list)/len(score_list)
     list_of_reciprocals = [1/score for score in score_list if score != 0] # Omits scores that are 0
     harmonic_mean: float = len(score_list)/sum(list_of_reciprocals)
-    return (average, harmonic_mean)
+    std_dev: float = (sum((x - average) ** 2 for x in score_list) / len(score_list)) ** 0.5
+    percentile_10th: float = sorted(score_list)[int(len(score_list) * 0.1)]
+    return (average, harmonic_mean, std_dev, percentile_10th)
 
 def calculate_metrics(source_path, encoded_path, every: int, metric, threads: int):
     core = vs.core
@@ -48,15 +50,19 @@ def calculate_metrics(source_path, encoded_path, every: int, metric, threads: in
 
             pbar.update(1)
             if (idx % 24 == 0):
-                (average, harmonic_mean) = calc_some_scores(scores)
+                (average, harmonic_mean, std_dev, percentile_10th) = calc_some_scores(scores)
                 pbar.set_postfix({
                     'avg': f"{average:.2f}",
-                    'harmean': f"{harmonic_mean:.2f}"
+                    'harmean': f"{harmonic_mean:.2f}",
+                    'std': f"{std_dev:.2f}",
+                    'p10': f"{percentile_10th:.2f}"
                 })
 
     average = sum(scores) / len(scores)
     harmonic_mean = len(scores) / sum([1.0/s for s in scores if s != 0])
-    return (average, harmonic_mean)
+    std_dev = (sum((x - average) ** 2 for x in scores) / len(scores)) ** 0.5
+    percentile_10th = sorted(scores)[int(len(scores) * 0.1)]
+    return (average, harmonic_mean, std_dev, percentile_10th)
 
 def plot_results(data, output_file, mode, codec_1, codec_2, codec1_str, codec2_str, format, input_filename):
     plt.figure(figsize=(10, 6))
@@ -72,8 +78,12 @@ def plot_results(data, output_file, mode, codec_1, codec_2, codec1_str, codec2_s
 
     if (f"{mode}" == "mean"):
         mode_pretty = "Average"
-    else:
+    elif (f"{mode}" == "harmean"):
         mode_pretty = "Harmonic Mean"
+    elif (f"{mode}" == "stddev"):
+        mode_pretty = "Standard Deviation"
+    elif (f"{mode}" == "p10"):
+        mode_pretty = "10th Percentile"
 
     # Set grid color to grey
     plt.grid(True, color='grey', linestyle='--', linewidth=0.5, alpha=0.5)
@@ -101,6 +111,8 @@ def plot_results(data, output_file, mode, codec_1, codec_2, codec1_str, codec2_s
 def process_results(codec, ffmpeg_command, crf_start, crf_end, crf_step, every, source, threads):
     codec_results_ssimu2 = []
     codec_results_harmonic_ssimu2 = []
+    codec_results_stddev_ssimu2 = []
+    codec_results_percentile10_ssimu2 = []
     codec_results_xpsnr = []
     codec_results_harmonic_xpsnr = []
     for crf in range(crf_start, crf_end + 1, crf_step):
@@ -113,6 +125,8 @@ def process_results(codec, ffmpeg_command, crf_start, crf_end, crf_step, every, 
         ssimu2_scores = calculate_metrics(source, output_file, every, "ssimu2", threads)
         ssimu2_mean = ssimu2_scores[0]
         ssimu2_harmonic = ssimu2_scores[1]
+        ssimu2_stddev = ssimu2_scores[2]
+        ssimu2_percentile10 = ssimu2_scores[3]
 
         # Uncomment when vszip has XPSNR support
         # xpsnr_scores = calculate_metrics(source, output_file, 1, "xpsnr", threads)
@@ -136,6 +150,18 @@ def process_results(codec, ffmpeg_command, crf_start, crf_end, crf_step, every, 
             'bitrate': bitrate_k
         })
 
+        codec_results_stddev_ssimu2.append({
+            'crf': crf,
+            'ssimu2': ssimu2_stddev,
+            'bitrate': bitrate_k
+        })
+
+        codec_results_percentile10_ssimu2.append({
+            'crf': crf,
+            'ssimu2': ssimu2_percentile10,
+            'bitrate': bitrate_k
+        })
+
         # Uncomment when vszip has XPSNR support
         # codec_results_xpsnr.append({
         #     'crf': crf,
@@ -152,7 +178,8 @@ def process_results(codec, ffmpeg_command, crf_start, crf_end, crf_step, every, 
         os.remove(output_file) # Clean up encoded file
     # Uncomment when vszip has XPSNR support
     # return (codec_results_ssimu2, codec_results_harmonic_ssimu2, codec_results_xpsnr, codec_results_harmonic_xpsnr)
-    return (codec_results_ssimu2, codec_results_harmonic_ssimu2)
+    return (codec_results_ssimu2, codec_results_harmonic_ssimu2,
+            codec_results_stddev_ssimu2, codec_results_percentile10_ssimu2)
 
 
 def main():
@@ -171,8 +198,17 @@ def main():
 
     input_filename: str = os.path.splitext(args.source)[0]
     format: str = args.format
-    os.mkdir("plots")
-    os.mkdir("json_logs")
+    try:
+        os.mkdir("plots")
+    except FileExistsError:
+        print(f"Error: \"plots\" directory already exists. Please clean up manually")
+        exit(1)
+
+    try:
+        os.mkdir("json_logs")
+    except FileExistsError:
+        print(f"Error: \"json_logs\" directory already exists. Please clean up manually")
+        exit(1)
 
     # User-specified codec strings & settings go here
     codec_1 = 'h264_vt'
@@ -184,18 +220,28 @@ def main():
 
     results_ssimu2 = {}
     results_harmonic_ssimu2 = {}
+    results_stddev_ssimu2 = {}
+    results_percentile10_ssimu2 = {}
     results_xpsnr = {}
     results_harmonic_xpsnr = {}
 
     # Process results
-    results_1_all = process_results(f'{codec_1}', ffmpeg_commands[f'{codec_1}'], args.crf_start_1, args.crf_end_1, args.crf_step_1, args.every, args.source, args.threads)
-    results_2_all = process_results(f'{codec_2}', ffmpeg_commands[f'{codec_2}'], args.crf_start_2, args.crf_end_2, args.crf_step_2, args.every, args.source, args.threads)
+    results_1_all = process_results(f'{codec_1}', ffmpeg_commands[f'{codec_1}'],
+                                    args.crf_start_1, args.crf_end_1, args.crf_step_1,
+                                    args.every, args.source, args.threads)
+    results_2_all = process_results(f'{codec_2}', ffmpeg_commands[f'{codec_2}'],
+                                    args.crf_start_2, args.crf_end_2, args.crf_step_2,
+                                    args.every, args.source, args.threads)
 
     # Assign results
     results_ssimu2[f'{codec_1}'] = results_1_all[0]
     results_ssimu2[f'{codec_2}'] = results_2_all[0]
     results_harmonic_ssimu2[f'{codec_1}'] = results_1_all[1]
     results_harmonic_ssimu2[f'{codec_2}'] = results_2_all[1]
+    results_stddev_ssimu2[f'{codec_1}'] = results_1_all[2]
+    results_stddev_ssimu2[f'{codec_2}'] = results_2_all[2]
+    results_percentile10_ssimu2[f'{codec_1}'] = results_1_all[3]
+    results_percentile10_ssimu2[f'{codec_2}'] = results_2_all[3]
 
     # Uncomment when vszip has XPSNR support
     # results_xpsnr[f'{codec_1}'] = results_1_all[2]
@@ -204,8 +250,14 @@ def main():
     # results_harmonic_xpsnr[f'{codec_2}'] = results_2_all[3]
 
     # Plot results
-    plot_results(results_ssimu2, f"plots/{input_filename}_curve-{codec_1}_vs_{codec_2}_every-{int(args.every)}-ssimu2-mean.{format}", "mean", codec_1, codec_2, ffmpeg_commands[f'{codec_1}'], ffmpeg_commands[f'{codec_2}'], format, input_filename)
-    plot_results(results_harmonic_ssimu2, f"plots/{input_filename}_curve-{codec_1}_vs_{codec_2}_every-{int(args.every)}-ssimu2-harmean.{format}", "harmean", codec_1, codec_2, ffmpeg_commands[f'{codec_1}'], ffmpeg_commands[f'{codec_2}'], format, input_filename)
+    plot_results(results_ssimu2, f"plots/{input_filename}_curve-{codec_1}_vs_{codec_2}_every-{int(args.every)}-ssimu2-mean.{format}",
+                "mean", codec_1, codec_2, ffmpeg_commands[f'{codec_1}'], ffmpeg_commands[f'{codec_2}'], format, input_filename)
+    plot_results(results_harmonic_ssimu2, f"plots/{input_filename}_curve-{codec_1}_vs_{codec_2}_every-{int(args.every)}-ssimu2-harmean.{format}",
+                "harmean", codec_1, codec_2, ffmpeg_commands[f'{codec_1}'], ffmpeg_commands[f'{codec_2}'], format, input_filename)
+    plot_results(results_stddev_ssimu2, f"plots/{input_filename}_curve-{codec_1}_vs_{codec_2}_every-{int(args.every)}-ssimu2-stddev.{format}",
+                "stddev", codec_1, codec_2, ffmpeg_commands[f'{codec_1}'], ffmpeg_commands[f'{codec_2}'], format, input_filename)
+    plot_results(results_percentile10_ssimu2, f"plots/{input_filename}_curve-{codec_1}_vs_{codec_2}_every-{int(args.every)}-ssimu2-p10.{format}",
+                "p10", codec_1, codec_2, ffmpeg_commands[f'{codec_1}'], ffmpeg_commands[f'{codec_2}'], format, input_filename)
 
     # Uncomment when vszip has XPSNR support
     # plot_results(results_xpsnr, f"plots/{input_filename}_curve-{codec_1}_vs_{codec_2}_every-{int(args.every)}-xpsnr-mean.{format}", "mean", codec_1, codec_2, ffmpeg_commands[f'{codec_1}'], ffmpeg_commands[f'{codec_2}'], format, input_filename)
@@ -217,6 +269,12 @@ def main():
 
     with open(f"json_logs/{input_filename}_results-{codec_1}_vs_{codec_2}_every-{int(args.every)}-ssimu2-harmean.json", "w") as f:
         json.dump(results_harmonic_ssimu2, f, indent=2)
+
+    with open(f"json_logs/{input_filename}_results-{codec_1}_vs_{codec_2}_every-{int(args.every)}-ssimu2-stddev.json", "w") as f:
+            json.dump(results_stddev_ssimu2, f, indent=2)
+
+    with open(f"json_logs/{input_filename}_results-{codec_1}_vs_{codec_2}_every-{int(args.every)}-ssimu2-p10.json", "w") as f:
+        json.dump(results_percentile10_ssimu2, f, indent=2)
 
     # Uncomment when vszip has XPSNR support
     # with open(f"json_logs/{input_filename}_results-{codec_1}_vs_{codec_2}_every-{int(args.every)}-xpsnr.json", "w") as f:
